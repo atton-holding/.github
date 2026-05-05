@@ -1,0 +1,68 @@
+name: "Atton Aggregate Reviews"
+description: "Combine per-provider findings JSON artifacts into a single consensus PR comment."
+author: "Atton Finance"
+
+inputs:
+  pr_number:
+    description: "Pull request number"
+    required: true
+  artifacts_dir:
+    description: "Directory where downloaded artifacts live"
+    required: false
+    default: "artifacts"
+  repository:
+    description: "owner/repo"
+    required: true
+  gh_token:
+    description: "GitHub token with pull-requests: write"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Aggregate findings into a comment body
+      shell: bash
+      env:
+        ARTIFACTS_DIR: ${{ inputs.artifacts_dir }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: node "$ACTION_PATH/aggregate.mjs" "$ARTIFACTS_DIR" /tmp/comment.md
+
+    - name: Post or update PR comment
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.gh_token }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+        REPO: ${{ inputs.repository }}
+      run: |
+        set -euo pipefail
+        if [ ! -s /tmp/comment.md ]; then
+          echo "No comment body produced. Skipping."
+          exit 0
+        fi
+        # Marker so we can find/update an existing comment instead of spamming.
+        MARKER="<!-- atton-ai-review:v1 -->"
+
+        # Look for an existing bot comment that contains the marker.
+        EXISTING_ID=$(gh api \
+          -H "Accept: application/vnd.github+json" \
+          "/repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" \
+          --jq "[.[] | select(.body | contains(\"${MARKER}\"))][0].id" || true)
+
+        if [ -n "${EXISTING_ID:-}" ] && [ "${EXISTING_ID}" != "null" ]; then
+          echo "Updating existing comment ${EXISTING_ID}"
+          gh api --method PATCH \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${REPO}/issues/comments/${EXISTING_ID}" \
+            -F body=@/tmp/comment.md
+        else
+          echo "Posting new comment"
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            -F body=@/tmp/comment.md
+        fi

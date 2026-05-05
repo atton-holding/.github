@@ -1,0 +1,131 @@
+name: "Atton LLM Review"
+description: "Run a single-provider AI review (Kimi, Claude, or Gemini) on a PR diff and emit findings JSON."
+author: "Atton Finance"
+
+inputs:
+  provider:
+    description: "Provider id: kimi | claude | gemini"
+    required: true
+  focus:
+    description: "Review focus: security | logic | dataflow"
+    required: true
+  pr_number:
+    description: "PR number"
+    required: true
+  base_ref:
+    description: "Base branch (e.g. main)"
+    required: false
+    default: "main"
+  diff_max_bytes:
+    description: "Hard cap on diff payload size in bytes (truncated past this)."
+    required: false
+    default: "100000"
+  api_key:
+    description: "Provider API key. Pass via secrets — never inline."
+    required: true
+  output_file:
+    description: "Findings output file (defaults to findings-${provider}.json)."
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        PROVIDER: ${{ inputs.provider }}
+        FOCUS: ${{ inputs.focus }}
+        API_KEY_SET: ${{ inputs.api_key != '' }}
+      run: |
+        set -euo pipefail
+        case "$PROVIDER" in
+          kimi|claude|gemini) ;;
+          *) echo "::error::Unknown provider: $PROVIDER"; exit 1 ;;
+        esac
+        case "$FOCUS" in
+          security|logic|dataflow) ;;
+          *) echo "::error::Unknown focus: $FOCUS"; exit 1 ;;
+        esac
+        if [ "$API_KEY_SET" != "true" ]; then
+          echo "::warning::No API key for provider $PROVIDER. Skipping review and emitting empty findings."
+          echo "SKIP=1" >> "$GITHUB_ENV"
+        fi
+
+    - name: Compute diff
+      if: env.SKIP != '1'
+      shell: bash
+      env:
+        BASE_REF: ${{ inputs.base_ref }}
+        DIFF_MAX_BYTES: ${{ inputs.diff_max_bytes }}
+      run: |
+        set -euo pipefail
+        # Ensure we have the base branch locally for the 3-dot diff.
+        # The PR-head is checked out by the parent workflow.
+        git fetch --no-tags --depth=200 origin "$BASE_REF" || true
+
+        # 3-dot diff: changes on this branch vs merge-base with base.
+        if git rev-parse --verify "origin/$BASE_REF" >/dev/null 2>&1; then
+          BASE="origin/$BASE_REF"
+        elif git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
+          BASE="$BASE_REF"
+        else
+          echo "::warning::Could not resolve base ref $BASE_REF, falling back to HEAD~50"
+          BASE="HEAD~50"
+        fi
+
+        git diff "$BASE...HEAD" --unified=10 > /tmp/pr.diff || true
+        SIZE=$(wc -c < /tmp/pr.diff | tr -d ' ')
+        echo "diff size: $SIZE bytes (cap: $DIFF_MAX_BYTES)"
+
+        if [ "$SIZE" -gt "$DIFF_MAX_BYTES" ]; then
+          head -c "$DIFF_MAX_BYTES" /tmp/pr.diff > /tmp/pr.diff.trunc
+          echo "" >> /tmp/pr.diff.trunc
+          echo "...[diff truncated at $DIFF_MAX_BYTES bytes for token-budget. Full diff is larger.]" >> /tmp/pr.diff.trunc
+          mv /tmp/pr.diff.trunc /tmp/pr.diff
+        fi
+
+        # File list (capped) for context.
+        git diff "$BASE...HEAD" --name-status > /tmp/pr.files || true
+
+    - name: Setup Node
+      if: env.SKIP != '1'
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Run provider review
+      if: env.SKIP != '1'
+      shell: bash
+      env:
+        PROVIDER: ${{ inputs.provider }}
+        FOCUS: ${{ inputs.focus }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+        # API key is exported into env, never interpolated into shell args.
+        ATTON_LLM_API_KEY: ${{ inputs.api_key }}
+        OUTPUT_FILE: ${{ inputs.output_file }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        OUT="${OUTPUT_FILE:-findings-${PROVIDER}.json}"
+        node "$ACTION_PATH/run.mjs" "$OUT"
+
+    - name: Emit empty findings on skip
+      if: env.SKIP == '1'
+      shell: bash
+      env:
+        PROVIDER: ${{ inputs.provider }}
+        OUTPUT_FILE: ${{ inputs.output_file }}
+      run: |
+        set -euo pipefail
+        OUT="${OUTPUT_FILE:-findings-${PROVIDER}.json}"
+        cat > "$OUT" <<'JSON'
+        {
+          "provider": "",
+          "skipped": true,
+          "reason": "API key not configured for this provider",
+          "findings": []
+        }
+        JSON
+        # Patch provider name in.
+        node -e "const fs=require('fs');const f=process.argv[1];const j=JSON.parse(fs.readFileSync(f));j.provider=process.env.PROVIDER;fs.writeFileSync(f,JSON.stringify(j,null,2));" "$OUT"
