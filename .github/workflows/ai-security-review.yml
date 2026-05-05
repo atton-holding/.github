@@ -1,6 +1,7 @@
 # Atton AI Multi-LLM Review Pipeline
-# Reusable workflow that runs 3 independent automated reviews on every PR
-# (Kimi + Claude + Gemini) and posts a consensus comment.
+# Reusable workflow that runs 2 independent automated reviews on every PR
+# (Kimi + Claude) and posts a consensus comment. Gemini job is wired but
+# disabled — re-enable in `models` input once the GEMINI secret is set.
 #
 # Usage from a consuming repo (e.g., atton-finance-landing):
 #
@@ -18,7 +19,10 @@
 # Required org-level secrets:
 #   - ATTON_CI_GITHUB_ACTIONS_KIMI_PROD    (created as `atton-ci-github-actions-kimi-prod`)
 #   - ATTON_CI_GITHUB_ACTIONS_CLAUDE_PROD  (created as `atton-ci-github-actions-claude-prod`)
+#
+# Optional (Sprint 2 / not yet provisioned):
 #   - ATTON_CI_GITHUB_ACTIONS_GEMINI_PROD  (created as `atton-ci-github-actions-gemini-prod`)
+#     When set + `models` input includes "gemini", the Gemini job activates.
 #
 # Security note: PR-controlled values (title/body/branch refs) are passed via
 # `with:` to composite actions, which consume them through `inputs.*` and
@@ -36,7 +40,7 @@ on:
         type: string
         default: ""
       models:
-        description: "Comma-separated provider override (kimi,claude,gemini). Empty = all three."
+        description: "Comma-separated provider override. Empty = kimi+claude (default). To opt-in Gemini once its secret is provisioned: 'kimi,claude,gemini'."
         required: false
         type: string
         default: ""
@@ -126,9 +130,12 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # Gemini reviewer — opt-in via `models: 'kimi,claude,gemini'` once
+  # ATTON_CI_GITHUB_ACTIONS_GEMINI_PROD secret is provisioned (Sprint 2).
+  # The default `models == ''` runs only Kimi + Claude.
   gemini-review:
     name: Gemini data-flow review
-    if: ${{ inputs.models == '' || contains(inputs.models, 'gemini') }}
+    if: ${{ contains(inputs.models, 'gemini') }}
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
