@@ -1,0 +1,189 @@
+# Atton AI Multi-LLM Review Pipeline
+# Reusable workflow that runs 3 independent automated reviews on every PR
+# (Kimi + Claude + Gemini) and posts a consensus comment.
+#
+# Usage from a consuming repo (e.g., atton-finance-landing):
+#
+#   # .github/workflows/security-review.yml
+#   name: AI Security Review
+#   on: [pull_request]
+#   permissions:
+#     contents: read
+#     pull-requests: write
+#   jobs:
+#     ai-review:
+#       uses: atton-holding/.github/.github/workflows/ai-security-review.yml@main
+#       secrets: inherit
+#
+# Required org-level secrets:
+#   - ATTON_KIMI_API_KEY    (created as `atton-ci-github-actions-kimi-prod`)
+#   - ATTON_CLAUDE_API_KEY  (created as `atton-ci-github-actions-claude-prod`)
+#   - ATTON_GEMINI_API_KEY  (created as `atton-ci-github-actions-gemini-prod`)
+#
+# Security note: PR-controlled values (title/body/branch refs) are passed via
+# `with:` to composite actions, which consume them through `inputs.*` and
+# bind to env vars before any shell interpolation. No untrusted github.event.*
+# field is interpolated directly into a `run:` block.
+
+name: AI Multi-LLM Review
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: "PR number to review. Defaults to the triggering PR."
+        required: false
+        type: string
+        default: ""
+      models:
+        description: "Comma-separated provider override (kimi,claude,gemini). Empty = all three."
+        required: false
+        type: string
+        default: ""
+      diff_max_bytes:
+        description: "Maximum diff size in bytes (truncated past this). Token-budget cap."
+        required: false
+        type: string
+        default: "100000"
+      base_ref:
+        description: "Base ref for diff. Defaults to PR base or origin/main."
+        required: false
+        type: string
+        default: ""
+    secrets:
+      ATTON_KIMI_API_KEY:
+        required: false
+      ATTON_CLAUDE_API_KEY:
+        required: false
+      ATTON_GEMINI_API_KEY:
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # ---- Provider review jobs (parallel, independent) ----
+  kimi-review:
+    name: Kimi security review
+    if: ${{ inputs.models == '' || contains(inputs.models, 'kimi') }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Run Kimi review
+        uses: atton-holding/.github/.github/actions/llm-review@main
+        with:
+          provider: kimi
+          focus: security
+          pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
+          base_ref: ${{ inputs.base_ref || github.event.pull_request.base.ref || 'main' }}
+          diff_max_bytes: ${{ inputs.diff_max_bytes }}
+          api_key: ${{ secrets.ATTON_KIMI_API_KEY }}
+
+      - name: Upload findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: findings-kimi
+          path: findings-kimi.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  claude-review:
+    name: Claude logic review
+    if: ${{ inputs.models == '' || contains(inputs.models, 'claude') }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Run Claude review
+        uses: atton-holding/.github/.github/actions/llm-review@main
+        with:
+          provider: claude
+          focus: logic
+          pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
+          base_ref: ${{ inputs.base_ref || github.event.pull_request.base.ref || 'main' }}
+          diff_max_bytes: ${{ inputs.diff_max_bytes }}
+          api_key: ${{ secrets.ATTON_CLAUDE_API_KEY }}
+
+      - name: Upload findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: findings-claude
+          path: findings-claude.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  gemini-review:
+    name: Gemini data-flow review
+    if: ${{ inputs.models == '' || contains(inputs.models, 'gemini') }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Run Gemini review
+        uses: atton-holding/.github/.github/actions/llm-review@main
+        with:
+          provider: gemini
+          focus: dataflow
+          pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
+          base_ref: ${{ inputs.base_ref || github.event.pull_request.base.ref || 'main' }}
+          diff_max_bytes: ${{ inputs.diff_max_bytes }}
+          api_key: ${{ secrets.ATTON_GEMINI_API_KEY }}
+
+      - name: Upload findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: findings-gemini
+          path: findings-gemini.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ---- Aggregator: posts a single PR comment ----
+  aggregate:
+    name: Aggregate reviews and comment
+    needs: [kimi-review, claude-review, gemini-review]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Checkout aggregator action
+        uses: actions/checkout@v4
+        with:
+          repository: atton-holding/.github
+          ref: main
+          path: _atton_github
+
+      - name: Download all finding artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+        continue-on-error: true
+
+      - name: Aggregate and post PR comment
+        uses: ./_atton_github/.github/actions/aggregate-reviews
+        with:
+          pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
+          artifacts_dir: artifacts
+          repository: ${{ github.repository }}
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
