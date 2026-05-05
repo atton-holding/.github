@@ -16,9 +16,9 @@
 #       secrets: inherit
 #
 # Required org-level secrets:
-#   - ATTON_KIMI_API_KEY    (created as `atton-ci-github-actions-kimi-prod`)
-#   - ATTON_CLAUDE_API_KEY  (created as `atton-ci-github-actions-claude-prod`)
-#   - ATTON_GEMINI_API_KEY  (created as `atton-ci-github-actions-gemini-prod`)
+#   - ATTON_CI_GITHUB_ACTIONS_KIMI_PROD    (created as `atton-ci-github-actions-kimi-prod`)
+#   - ATTON_CI_GITHUB_ACTIONS_CLAUDE_PROD  (created as `atton-ci-github-actions-claude-prod`)
+#   - ATTON_CI_GITHUB_ACTIONS_GEMINI_PROD  (created as `atton-ci-github-actions-gemini-prod`)
 #
 # Security note: PR-controlled values (title/body/branch refs) are passed via
 # `with:` to composite actions, which consume them through `inputs.*` and
@@ -51,11 +51,11 @@ on:
         type: string
         default: ""
     secrets:
-      ATTON_KIMI_API_KEY:
+      ATTON_CI_GITHUB_ACTIONS_KIMI_PROD:
         required: false
-      ATTON_CLAUDE_API_KEY:
+      ATTON_CI_GITHUB_ACTIONS_CLAUDE_PROD:
         required: false
-      ATTON_GEMINI_API_KEY:
+      ATTON_CI_GITHUB_ACTIONS_GEMINI_PROD:
         required: false
 
 permissions:
@@ -84,7 +84,7 @@ jobs:
           pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
           base_ref: ${{ inputs.base_ref || github.event.pull_request.base.ref || 'main' }}
           diff_max_bytes: ${{ inputs.diff_max_bytes }}
-          api_key: ${{ secrets.ATTON_KIMI_API_KEY }}
+          api_key: ${{ secrets.ATTON_CI_GITHUB_ACTIONS_KIMI_PROD }}
 
       - name: Upload findings
         if: always()
@@ -115,7 +115,7 @@ jobs:
           pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
           base_ref: ${{ inputs.base_ref || github.event.pull_request.base.ref || 'main' }}
           diff_max_bytes: ${{ inputs.diff_max_bytes }}
-          api_key: ${{ secrets.ATTON_CLAUDE_API_KEY }}
+          api_key: ${{ secrets.ATTON_CI_GITHUB_ACTIONS_CLAUDE_PROD }}
 
       - name: Upload findings
         if: always()
@@ -146,7 +146,7 @@ jobs:
           pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
           base_ref: ${{ inputs.base_ref || github.event.pull_request.base.ref || 'main' }}
           diff_max_bytes: ${{ inputs.diff_max_bytes }}
-          api_key: ${{ secrets.ATTON_GEMINI_API_KEY }}
+          api_key: ${{ secrets.ATTON_CI_GITHUB_ACTIONS_GEMINI_PROD }}
 
       - name: Upload findings
         if: always()

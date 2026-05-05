@@ -56,9 +56,9 @@ Add the following at https://github.com/organizations/atton-holding/settings/sec
 
 | Secret name              | Naming in provider portal                       | Suggested cap |
 |--------------------------|--------------------------------------------------|---------------|
-| `ATTON_KIMI_API_KEY`     | `atton-ci-github-actions-kimi-prod`              | $50 / mo      |
-| `ATTON_CLAUDE_API_KEY`   | `atton-ci-github-actions-claude-prod`            | $20 / mo      |
-| `ATTON_GEMINI_API_KEY`   | `atton-ci-github-actions-gemini-prod`            | $30 / mo      |
+| `ATTON_CI_GITHUB_ACTIONS_KIMI_PROD`     | `atton-ci-github-actions-kimi-prod`              | $50 / mo      |
+| `ATTON_CI_GITHUB_ACTIONS_CLAUDE_PROD`   | `atton-ci-github-actions-claude-prod`            | $20 / mo      |
+| `ATTON_CI_GITHUB_ACTIONS_GEMINI_PROD`   | `atton-ci-github-actions-gemini-prod`            | $30 / mo      |
 
 If a key is missing, that provider's job emits an empty findings file with `"skipped": true` and the aggregator continues with the remaining providers.
 
