@@ -1,0 +1,49 @@
+name: "Atton pnpm install"
+description: "Setup pnpm + Node, autentica a GitHub Packages (@atton-holding) e instala. Centraliza el fix de CASE-217 (pnpm ignora el _authToken con ${VAR} en el .npmrc commiteado)."
+author: "Atton Finance"
+
+inputs:
+  pnpm-version:
+    description: "Versión de pnpm para pnpm/action-setup."
+    required: false
+    default: "10"
+  node-version:
+    description: "Versión de Node."
+    required: false
+    default: "20"
+  node-auth-token:
+    description: "Token de GitHub Packages para @atton-holding/*. Pasar SIEMPRE vía secrets.NODE_AUTH_TOKEN, nunca inline."
+    required: true
+  install:
+    description: "Si 'true', corre `pnpm install`. Pon 'false' para solo setup+auth (instalas tú después)."
+    required: false
+    default: "true"
+  install-args:
+    description: "Argumentos para `pnpm install`."
+    required: false
+    default: "--frozen-lockfile"
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+      with:
+        version: ${{ inputs.pnpm-version }}
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+
+    # CASE-217: pnpm (>=10) ya NO expande variables de entorno en credenciales que
+    # vienen de un .npmrc COMMITEADO (anti-leak), causando ERR_PNPM_FETCH_401 contra
+    # @atton-holding/*. Seteamos el token a nivel-user (fuente confiable que pnpm SÍ
+    # expande) antes de instalar. GitHub enmascara el secreto en los logs.
+    - name: Auth GitHub Packages (@atton-holding)
+      shell: bash
+      run: pnpm config set "//npm.pkg.github.com/:_authToken" "${{ inputs.node-auth-token }}"
+
+    - name: Install dependencies
+      if: ${{ inputs.install == 'true' }}
+      shell: bash
+      run: pnpm install ${{ inputs.install-args }}
