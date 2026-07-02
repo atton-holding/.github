@@ -1,6 +1,6 @@
 # Atton AI Multi-LLM Review Pipeline
-# Reusable workflow that runs 2 independent automated reviews on every PR
-# (Kimi + Claude) and posts a consensus comment. Gemini job is wired but
+# Reusable workflow that runs independent automated reviews on every PR
+# (Claude by default) and posts a consensus comment. Gemini job is wired but
 # disabled — re-enable in `models` input once the GEMINI secret is set.
 #
 # Usage from a consuming repo (e.g., atton-finance-landing):
@@ -17,7 +17,6 @@
 #       secrets: inherit
 #
 # Required org-level secrets:
-#   - ATTON_CI_GITHUB_ACTIONS_KIMI_PROD    (created as `atton-ci-github-actions-kimi-prod`)
 #   - ATTON_CI_GITHUB_ACTIONS_CLAUDE_PROD  (created as `atton-ci-github-actions-claude-prod`)
 #
 # Optional (Sprint 2 / not yet provisioned):
@@ -40,7 +39,7 @@ on:
         type: string
         default: ""
       models:
-        description: "Comma-separated provider override. Empty = kimi+claude (default). To opt-in Gemini once its secret is provisioned: 'kimi,claude,gemini'."
+        description: "Comma-separated provider override. Empty = claude (default). To opt-in Gemini once its secret is provisioned: 'claude,gemini'."
         required: false
         type: string
         default: ""
@@ -55,8 +54,6 @@ on:
         type: string
         default: ""
     secrets:
-      ATTON_CI_GITHUB_ACTIONS_KIMI_PROD:
-        required: false
       ATTON_CI_GITHUB_ACTIONS_CLAUDE_PROD:
         required: false
       ATTON_CI_GITHUB_ACTIONS_GEMINI_PROD:
@@ -68,39 +65,8 @@ permissions:
 
 jobs:
   # ---- Provider review jobs (parallel, independent) ----
-  kimi-review:
-    name: Kimi security review
-    if: ${{ inputs.models == '' || contains(inputs.models, 'kimi') }}
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - name: Checkout PR head
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Run Kimi review
-        uses: atton-holding/.github/.github/actions/llm-review@main
-        with:
-          provider: kimi
-          focus: security
-          pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
-          base_ref: ${{ inputs.base_ref || github.event.pull_request.base.ref || 'main' }}
-          diff_max_bytes: ${{ inputs.diff_max_bytes }}
-          api_key: ${{ secrets.ATTON_CI_GITHUB_ACTIONS_KIMI_PROD }}
-
-      - name: Upload findings
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: findings-kimi
-          path: findings-kimi.json
-          if-no-files-found: ignore
-          retention-days: 7
-
   claude-review:
-    name: Claude logic review
+    name: Claude security review
     if: ${{ inputs.models == '' || contains(inputs.models, 'claude') }}
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -115,7 +81,7 @@ jobs:
         uses: atton-holding/.github/.github/actions/llm-review@main
         with:
           provider: claude
-          focus: logic
+          focus: security
           pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
           base_ref: ${{ inputs.base_ref || github.event.pull_request.base.ref || 'main' }}
           diff_max_bytes: ${{ inputs.diff_max_bytes }}
@@ -130,9 +96,9 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # Gemini reviewer — opt-in via `models: 'kimi,claude,gemini'` once
+  # Gemini reviewer — opt-in via `models: 'claude,gemini'` once
   # ATTON_CI_GITHUB_ACTIONS_GEMINI_PROD secret is provisioned (Sprint 2).
-  # The default `models == ''` runs only Kimi + Claude.
+  # The default `models == ''` runs only Claude.
   gemini-review:
     name: Gemini data-flow review
     if: ${{ contains(inputs.models, 'gemini') }}
@@ -167,7 +133,7 @@ jobs:
   # ---- Aggregator: posts a single PR comment ----
   aggregate:
     name: Aggregate reviews and comment
-    needs: [kimi-review, claude-review, gemini-review]
+    needs: [claude-review, gemini-review]
     if: always()
     runs-on: ubuntu-latest
     permissions:

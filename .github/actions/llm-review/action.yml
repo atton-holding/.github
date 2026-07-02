@@ -1,10 +1,10 @@
 name: "Atton LLM Review"
-description: "Run a single-provider AI review (Kimi, Claude, or Gemini) on a PR diff and emit findings JSON."
+description: "Run a single-provider AI review (Claude or Gemini) on a PR diff and emit findings JSON."
 author: "Atton Finance"
 
 inputs:
   provider:
-    description: "Provider id: kimi | claude | gemini"
+    description: "Provider id: claude | gemini"
     required: true
   focus:
     description: "Review focus: security | logic | dataflow"
@@ -40,7 +40,7 @@ runs:
       run: |
         set -euo pipefail
         case "$PROVIDER" in
-          kimi|claude|gemini) ;;
+          claude|gemini) ;;
           *) echo "::error::Unknown provider: $PROVIDER"; exit 1 ;;
         esac
         case "$FOCUS" in
