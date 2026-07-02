@@ -12,15 +12,14 @@ This repo hosts shared GitHub assets for every Atton repo:
 
 ## AI Multi-LLM Review Pipeline
 
-Reusable workflow that runs two independent automated reviews on every pull request — one with Kimi (security and anti-phishing) and one with Claude (logic and correctness) — then posts a single consolidated comment with a consensus block on the PR. A Gemini reviewer (data flow and supply chain focus) is wired into the workflow but disabled by default; opt-in via the `models` input once the Gemini secret is provisioned in Sprint 2.
+Reusable workflow that runs an independent automated review on every pull request with Claude (security and anti-phishing), then posts a single consolidated comment with a consensus block on the PR. A Gemini reviewer (data flow and supply chain focus) is wired into the workflow but disabled by default; opt-in via the `models` input once the Gemini secret is provisioned in Sprint 2.
 
 ### Architecture
 
 ```
 PR opened
    |
-   +-- kimi-review     (security focus)    --+
-   +-- claude-review   (logic focus)       --+--> aggregate --> 1 PR comment
+   +-- claude-review   (security focus)    --+--> aggregate --> 1 PR comment
    +-- gemini-review   (data-flow focus)   --+   (opt-in, Sprint 2)
 ```
 
@@ -54,14 +53,13 @@ That is the entire integration. `secrets: inherit` forwards the org-level keys; 
 
 Add the following at https://github.com/organizations/atton-holding/settings/secrets/actions and grant them to all repos that adopt the workflow.
 
-**Required (default `models = ''` runs Kimi + Claude):**
+**Required (default `models = ''` runs Claude):**
 
 | Secret name | Naming in provider portal | Suggested cap |
 |-------------|---------------------------|---------------|
-| `ATTON_CI_GITHUB_ACTIONS_KIMI_PROD`   | `atton-ci-github-actions-kimi-prod`   | $50 / mo |
 | `ATTON_CI_GITHUB_ACTIONS_CLAUDE_PROD` | `atton-ci-github-actions-claude-prod` | $20 / mo |
 
-**Optional (Sprint 2 — opt-in via `models: 'kimi,claude,gemini'`):**
+**Optional (Sprint 2 — opt-in via `models: 'claude,gemini'`):**
 
 | Secret name | Naming in provider portal | Suggested cap |
 |-------------|---------------------------|---------------|
@@ -71,12 +69,12 @@ If a key is missing, that provider's job emits an empty findings file with `"ski
 
 ### Workflow inputs (advanced)
 
-| Input            | Default     | Description                                                                |
-|------------------|-------------|----------------------------------------------------------------------------|
-| `pr_number`      | _triggering PR_ | Override which PR to review.                                          |
-| `models`         | _empty (= kimi+claude)_ | Comma-separated providers. Empty = `kimi,claude`. Add `gemini` once its secret is provisioned. |
-| `diff_max_bytes` | `100000`    | Hard cap on the unified diff size (truncated past this for token budget). |
-| `base_ref`       | _PR base_   | Override the base branch for the diff.                                    |
+| Input            | Default            | Description                                                                               |
+|------------------|--------------------|-------------------------------------------------------------------------------------------|
+| `pr_number`      | _triggering PR_    | Override which PR to review.                                                              |
+| `models`         | _empty (= claude)_ | Comma-separated providers. Empty = `claude`. Add `gemini` once its secret is provisioned. |
+| `diff_max_bytes` | `100000`           | Hard cap on the unified diff size (truncated past this for token budget).                 |
+| `base_ref`       | _PR base_          | Override the base branch for the diff.                                                    |
 
 ### Output format
 
@@ -84,9 +82,9 @@ Each provider job writes `findings-<provider>.json` and uploads it as an artifac
 
 ```json
 {
-  "provider": "kimi",
+  "provider": "claude",
   "focus": "security",
-  "model": "moonshot-v1-32k",
+  "model": "claude-haiku-4-5-20251001",
   "pr_number": "42",
   "findings": [
     {
@@ -108,7 +106,7 @@ The aggregator promotes a finding to **Consensus** when 2+ providers report it o
 
 At ~30 PRs / month with diffs averaging 30 KB:
 
-- **Default (Kimi + Claude)**: ~**$0.13 / month** combined.
+- **Default (Claude only)**: well under **$0.13 / month** (the previous two-provider estimate).
 - **With Gemini opted-in**: ~**$0.20 / month** combined.
 
 Both sit comfortably under the suggested combined caps.

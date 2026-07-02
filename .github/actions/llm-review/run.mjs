@@ -4,7 +4,7 @@
 // Reads:
 //   - /tmp/pr.diff           (truncated diff produced by composite action)
 //   - /tmp/pr.files          (name-status list)
-//   - env.PROVIDER           (kimi | claude | gemini)
+//   - env.PROVIDER           (claude | gemini)
 //   - env.FOCUS              (security | logic | dataflow)
 //   - env.ATTON_LLM_API_KEY  (provider API key)
 //   - env.PR_NUMBER          (informational, included in prompt)
@@ -134,32 +134,6 @@ function parseFindings(raw) {
   }
 }
 
-async function callKimi(systemPrompt, userPrompt) {
-  const res = await fetch("https://api.moonshot.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "moonshot-v1-32k",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      max_tokens: 4096,
-      temperature: 0.1,
-    }),
-    signal: AbortSignal.timeout(120_000),
-  });
-  if (!res.ok) throw new Error(`Kimi ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const data = await res.json();
-  return {
-    model: "moonshot-v1-32k",
-    raw: data?.choices?.[0]?.message?.content || "",
-  };
-}
-
 async function callClaude(systemPrompt, userPrompt) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -231,8 +205,7 @@ async function main() {
 
   try {
     let result;
-    if (PROVIDER === "kimi") result = await callKimi(systemPrompt, userPrompt);
-    else if (PROVIDER === "claude") result = await callClaude(systemPrompt, userPrompt);
+    if (PROVIDER === "claude") result = await callClaude(systemPrompt, userPrompt);
     else if (PROVIDER === "gemini") result = await callGemini(systemPrompt, userPrompt);
     else throw new Error(`Unknown provider ${PROVIDER}`);
 

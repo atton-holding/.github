@@ -2,7 +2,6 @@
 // Atton AI Multi-LLM Review — aggregator.
 //
 // Reads provider findings JSON files from the artifacts directory:
-//   <artifacts_dir>/findings-kimi/findings-kimi.json
 //   <artifacts_dir>/findings-claude/findings-claude.json
 //   <artifacts_dir>/findings-gemini/findings-gemini.json
 //
@@ -19,7 +18,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const PROVIDERS = ["kimi", "claude", "gemini"];
+const PROVIDERS = ["claude", "gemini"];
 const SEVERITY_RANK = { critical: 4, high: 3, medium: 2, low: 1 };
 const SEVERITY_EMOJI = {
   critical: "[CRITICAL]",
@@ -28,8 +27,7 @@ const SEVERITY_EMOJI = {
   low: "[LOW]",
 };
 const PROVIDER_TITLE = {
-  kimi: "Kimi - Security & anti-phishing",
-  claude: "Claude - Logic & correctness",
+  claude: "Claude - Security & anti-phishing",
   gemini: "Gemini - Data flow & supply chain",
 };
 
@@ -179,7 +177,7 @@ function main() {
   const header = `<!-- atton-ai-review:v1 -->
 ## Atton AI Multi-LLM Review
 
-3 independent reviewers (Kimi, Claude, Gemini) inspected this PR's diff in parallel.
+Independent AI reviewers (Claude by default; Gemini when opted-in) inspected this PR's diff in parallel.
 
 **Status:** ${ok} succeeded - ${skipped} skipped - ${errored} errored - ${missing} missing
 **Total raw findings:** ${allFindings.length}
@@ -192,10 +190,9 @@ function main() {
     header,
     consensusSection(consensus),
     "---",
-    providerSection("kimi", payloads.kimi),
     providerSection("claude", payloads.claude),
     providerSection("gemini", payloads.gemini),
-    "<details><summary>How this works</summary>\n\nEach provider reviews the diff independently with a different focus prompt: Kimi covers security and anti-phishing, Claude covers logic and correctness, Gemini covers data flow and supply chain. A finding is promoted to **Consensus** when 2+ providers report it on the same file with line numbers within ~10 lines of each other. Reusable workflow lives at `atton-holding/.github/.github/workflows/ai-security-review.yml`.\n</details>",
+    "<details><summary>How this works</summary>\n\nEach provider reviews the diff independently with a different focus prompt: Claude covers security and anti-phishing, Gemini covers data flow and supply chain. A finding is promoted to **Consensus** when 2+ providers report it on the same file with line numbers within ~10 lines of each other. Reusable workflow lives at `atton-holding/.github/.github/workflows/ai-security-review.yml`.\n</details>",
   ].join("\n\n");
 
   fs.writeFileSync(outPath, body);
