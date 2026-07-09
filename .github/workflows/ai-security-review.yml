@@ -130,6 +130,49 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # ---- Retired-provider ratchet (CASE-294 · provider-retirement-checklist.md) ----
+  # Diff-only gate: fails the PR if an ADDED line reintroduces a retired
+  # provider. Matches functional patterns only (endpoints, env vars, model
+  # ids, function names) — historical-record lines preserved ecosystem-wide
+  # never match these. Escape hatch for moving/quoting historical text: put
+  # the marker "(histórico)" or "no reintroducir" on the line.
+  # Retired: Kimi/Moonshot (2026-07-02 · account closed · no HIPAA BAA · TASK-0525).
+  retired-provider-ratchet:
+    name: Retired-provider ratchet
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout PR merge commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Fail if the diff reintroduces a retired provider
+        run: |
+          set -euo pipefail
+          # Functional patterns per retired provider (extend on future retirements):
+          PATTERN='api\.moonshot|moonshot\.(ai|cn)|kimi-k[0-9]|KIMI_API_KEY|KIMI_MODEL|MOONSHOT_API_KEY|MOONSHOT_MODEL|MOONSHOT_ENDPOINT|callMoonshot'
+          ESCAPE='hist[oó]rico|no reintroducir|RETIRED-OK'
+          # On pull_request the checkout is the merge commit: HEAD^1 = base tip,
+          # so this diff is exactly what the PR would merge.
+          hits=$(git diff HEAD^1 HEAD --unified=0 -- . \
+            | grep -E '^\+[^+]' \
+            | grep -iE "$PATTERN" \
+            | grep -ivE "$ESCAPE" || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Retired provider reintroduced — Kimi/Moonshot was removed 2026-07-02 (account closed, no HIPAA BAA). Do not reintroduce."
+            echo "Offending added lines:"
+            echo "$hits"
+            echo ""
+            echo "If this is historical-record text being moved or quoted, add the"
+            echo "marker '(histórico)' or 'no reintroducir' on the same line."
+            echo "Canon: aduana/_canonical-rules/provider-retirement-checklist.md (CASE-294)."
+            exit 1
+          fi
+          echo "OK — no retired-provider patterns in added lines."
+
   # ---- Aggregator: posts a single PR comment ----
   aggregate:
     name: Aggregate reviews and comment
