@@ -1,0 +1,23 @@
+# denylist-packages.txt · Denylist org-wide de paquetes npm abandonados
+# TASK-0540 · CASE-280 (Capa 2)
+#
+# Formato: un nombre de paquete npm por línea (nombre exacto, con scope si aplica).
+# Líneas que empiezan con '#' y líneas vacías se ignoran.
+#
+# Enforcement: job `abandoned-package-denylist` en
+# .github/workflows/ai-security-review.yml (diff-only: solo falla si un PR
+# AGREGA el paquete a package.json o a un lockfile; el uso histórico ya
+# existente en un repo NO falla).
+# La lista se lee de main en runtime: agregar entradas aquí aplica org-wide
+# de inmediato, SIN bump de pin SHA en los repos consumidores.
+#
+# Para agregar un paquete: PR a este repo con la línea nueva + comentario
+# encima explicando el porqué (CASE / vulnerabilidad / evidencia de abandono).
+#
+# Escape documentado en repos consumidores (p.ej. lockfile regenerado con uso
+# histórico preexistente): línea `denylist-ok: <razón>` en el body del PR.
+
+# gray-matter: paquete abandonado, vulnerable a DoS vía js-yaml (transitivo).
+# Ya mitigado en command-center (CASE-280); esta entrada impide su
+# reintroducción org-wide.
+gray-matter

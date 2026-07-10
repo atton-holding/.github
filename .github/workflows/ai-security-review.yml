@@ -173,6 +173,88 @@ jobs:
           fi
           echo "OK — no retired-provider patterns in added lines."
 
+  # ---- Abandoned-package denylist (TASK-0540 · CASE-280 Capa 2) ----
+  # Diff-only gate: falla el PR si una línea AGREGADA introduce un paquete
+  # denylisted (abandonado/vulnerable) en package.json o en un lockfile
+  # (pnpm-lock.yaml / package-lock.json / yarn.lock). El uso histórico ya
+  # existente en un repo NO falla: solo se inspeccionan líneas agregadas.
+  # La lista vive en `denylist-packages.txt` (raíz de atton-holding/.github)
+  # y se lee de main en runtime: agregar un paquete a la lista aplica
+  # org-wide de inmediato, sin bump de pin SHA en los consumidores.
+  # Escape documentado: línea `denylist-ok: <razón>` en el body del PR
+  # (p.ej. lockfile regenerado en un repo con uso histórico preexistente).
+  abandoned-package-denylist:
+    name: Abandoned-package denylist
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout PR merge commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Checkout denylist (atton-holding/.github@main)
+        uses: actions/checkout@v4
+        with:
+          repository: atton-holding/.github
+          ref: main
+          path: _atton_github
+
+      - name: Fail si el diff agrega un paquete denylisted
+        env:
+          # El body del PR es controlado por el autor: se consume vía env y
+          # nunca se interpola directo en el script (ver security note arriba).
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          DENYLIST="_atton_github/denylist-packages.txt"
+          if [ ! -f "$DENYLIST" ]; then
+            echo "::error::No existe $DENYLIST en atton-holding/.github@main"
+            exit 1
+          fi
+          # Nombres de paquete: sin comentarios (#) ni líneas vacías
+          names=$(grep -vE '^[[:space:]]*(#|$)' "$DENYLIST" | sed -E 's/[[:space:]]+//g')
+          if [ -z "$names" ]; then
+            echo "OK - denylist vacía, nada que verificar."
+            exit 0
+          fi
+          # Alternación regex con metacaracteres escapados
+          alt=$(printf '%s\n' "$names" | sed -e 's/[].[^$*+?(){}|\\]/\\&/g' | paste -sd'|' -)
+          # Solo líneas AGREGADAS en manifests/lockfiles (diff del merge
+          # commit: HEAD^1 = base tip, igual que retired-provider-ratchet).
+          added=$(git diff HEAD^1 HEAD --unified=0 -- \
+              ':(glob)**/package.json' ':(glob)**/pnpm-lock.yaml' \
+              ':(glob)**/package-lock.json' ':(glob)**/yarn.lock' \
+            | grep -E '^\+[^+]' | sed 's/^+//' || true)
+          # Nombre de paquete como token: cubre "pkg": (package.json/npm lock),
+          # pkg@x.y.z: y /pkg@x.y.z: (pnpm-lock v6/v9), pkg@^x: (yarn.lock)
+          # y el bloque specifier de pnpm importers (pkg:).
+          hits=$(printf '%s\n' "$added" | grep -E "(^|[\"'/[:space:]])($alt)([\"'@:]|\$)" || true)
+          if [ -z "$hits" ]; then
+            echo "OK - ningún paquete denylisted agregado en el diff."
+            exit 0
+          fi
+          # Escape explícito y documentado en el body del PR
+          if printf '%s\n' "${PR_BODY:-}" | grep -qiE 'denylist-ok:[[:space:]]*[^[:space:]]'; then
+            reason=$(printf '%s\n' "${PR_BODY:-}" | grep -ioE 'denylist-ok:.*' | head -n 1)
+            echo "::warning::Paquete denylisted agregado, pero el PR trae escape documentado -> ${reason}"
+            echo "Líneas que habrían fallado:"
+            echo "$hits"
+            exit 0
+          fi
+          echo "::error::Paquete npm denylisted agregado (abandonado/vulnerable · CASE-280). Lista: denylist-packages.txt en atton-holding/.github."
+          echo "Líneas agregadas ofensoras:"
+          echo "$hits"
+          echo ""
+          echo "Si es inevitable y está documentado (p.ej. lockfile regenerado"
+          echo "con uso histórico preexistente), agrega al body del PR:"
+          echo "  denylist-ok: <razón>"
+          echo "Para denylistar un paquete nuevo: PR a atton-holding/.github"
+          echo "editando denylist-packages.txt (con comentario del porqué/CASE)."
+          exit 1
+
   # ---- Aggregator: posts a single PR comment ----
   aggregate:
     name: Aggregate reviews and comment
