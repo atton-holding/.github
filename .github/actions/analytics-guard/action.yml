@@ -1,0 +1,43 @@
+name: "Atton analytics guard"
+description: >-
+  Verifica que la analítica del repo pueda realmente medir: CSP con los hosts de
+  PostHog, before_send que no toca el sobre del evento, y redactor de PII con
+  tests. Cada verificación corresponde a una falla real de CASE-427, donde dos
+  sitios pasaron 30 días en producción sin registrar una sola visita.
+author: "Atton Finance"
+
+inputs:
+  modo:
+    description: >-
+      'block' (por defecto) falla el job ante un hallazgo. 'warn' reporta y deja
+      pasar, para engancharla en un repo que todavía arrastra deuda sin frenarle
+      el CI. Un repo nuevo arranca siempre en 'block'.
+    required: false
+    default: "block"
+  directorio:
+    description: "Directorio a analizar. Útil en monorepos."
+    required: false
+    default: "."
+
+runs:
+  using: composite
+  steps:
+    - name: Guarda de analítica
+      shell: bash
+      working-directory: ${{ inputs.directorio }}
+      run: |
+        set -uo pipefail
+        node "${{ github.action_path }}/guarda.mjs"
+        codigo=$?
+
+        if [ $codigo -eq 0 ]; then
+          exit 0
+        fi
+
+        if [ "${{ inputs.modo }}" = "warn" ]; then
+          echo "::warning::[guarda-analitica] Hallazgos encontrados. El modo es 'warn', así que el job sigue."
+          echo "::warning::[guarda-analitica] Pasar a modo 'block' en cuanto la deuda esté saldada."
+          exit 0
+        fi
+
+        exit $codigo
