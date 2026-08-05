@@ -128,22 +128,99 @@ if (inicializanPostHog.length > 0) {
 // `scrub(event)` no.
 const REDACTORES = /(scrub|sanitiz|redact|clean|limpi)[A-Za-z_]*/
 
-for (const [ruta, texto] of contenidos) {
-  const m = texto.match(/before_send\s*:\s*\(?\s*([A-Za-z_$][\w$]*)/)
-  if (!m) continue
-  const evento = m[1]
+// El handler puede estar escrito inline o vivir en su propio archivo. Lo segundo
+// es lo habitual —y es como está escrito el de bazar, el repo que originó
+// CASE-427—, así que mirar sólo el archivo del `posthog.init()` deja pasar
+// justamente el caso que motivó esta guarda. Ver CASE-479.
+// El `[,):]` final acepta la anotación de tipo de TypeScript: el before_send del
+// CRM está escrito `(event: unknown) => …`, y exigir `,` o `)` pegado al nombre
+// dejaba de verlo. Casi entra así: los cinco sitios daban limpio y el sexto repo
+// fue el que lo dijo.
+const FORMAS_INLINE = [
+  // function (event) …  ·  function nombre(event) …  ·  async function …
+  /^\s*(?:async\s+)?function\s*(?:[A-Za-z_$][\w$]*\s*)?\(\s*([A-Za-z_$][\w$]*)\s*[,):]/,
+  // (event) => …  ·  (event: unknown) => …  ·  async (event) => …
+  /^\s*(?:async\s*)?\(\s*([A-Za-z_$][\w$]*)\s*[,):]/,
+  // event => …
+  /^\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*=>/,
+]
 
-  // Llamadas a un redactor con el evento entero como único argumento.
-  const patron = new RegExp(
-    `${REDACTORES.source}\\s*\\(\\s*${evento}\\s*[,)]`,
-    'g',
-  )
-  const encontradas = texto.match(patron)
+/** Nombre del parámetro del evento si el handler está escrito ahí mismo. */
+function parametroInline(cola) {
+  for (const forma of FORMAS_INLINE) {
+    const m = cola.match(forma)
+    if (m) return m[1]
+  }
+  return null
+}
+
+/** Nombre del handler si `before_send` apunta a una referencia. */
+function referencia(cola) {
+  const m = cola.match(/^\s*([A-Za-z_$][\w$]*)\s*[,}\r\n]/)
+  return m ? m[1] : null
+}
+
+/**
+ * Busca dónde se define ese handler, en cualquier archivo del repo, y devuelve
+ * el archivo y el nombre real de su primer parámetro.
+ */
+function definicionDe(nombre) {
+  // Cada declaración corta justo antes de la cabeza de la función, para que lo
+  // que sigue sea siempre '(event) …', 'event => …' o 'function (event) …'.
+  const declaraciones = [
+    new RegExp(`function\\s+${nombre}\\s*`),
+    new RegExp(`(?:const|let|var)\\s+${nombre}\\s*=`),
+  ]
+  for (const [ruta, texto] of contenidos) {
+    for (const decl of declaraciones) {
+      const m = texto.match(decl)
+      if (!m) continue
+      const param = parametroInline(texto.slice(m.index + m[0].length))
+      if (param) return { ruta, texto, param }
+    }
+  }
+  return null
+}
+
+/** Llamadas a un redactor con el evento entero como único argumento. */
+function redactorSobreElSobre(texto, evento) {
+  const patron = new RegExp(`${REDACTORES.source}\\s*\\(\\s*${evento}\\s*[,)]`, 'g')
+  return texto.match(patron)
+}
+
+for (const [ruta, texto] of contenidos) {
+  const m = texto.match(/before_send\s*:/)
+  if (!m) continue
+  const cola = texto.slice(m.index + m[0].length)
+
+  let objetivo = null
+  const inline = parametroInline(cola)
+  if (inline) {
+    objetivo = { ruta, texto, param: inline }
+  } else {
+    const nombre = referencia(cola)
+    objetivo = nombre ? definicionDe(nombre) : null
+    if (!objetivo) {
+      // No afirmamos que esté mal: decimos que no lo pudimos ver. Es el mismo
+      // trato que le damos a la CSP que pone un proxy.
+      notas.push(
+        `before_send en ${rel(ruta)} apunta a ${nombre ? `'${nombre}'` : 'algo'} y no pude ` +
+          `encontrar dónde se define, así que no pude verificar si redacta el sobre del ` +
+          `evento. Si viene de un paquete externo o de un alias de import, revisalo a mano.`,
+      )
+      continue
+    }
+  }
+
+  const encontradas = redactorSobreElSobre(objetivo.texto, objetivo.param)
   if (encontradas) {
     fallos.push(
       [
         `before_send pasa el evento entero por un redactor: ${encontradas[0]}`,
-        `  Archivo: ${rel(ruta)}`,
+        `  Archivo: ${rel(objetivo.ruta)}`,
+        objetivo.ruta === ruta
+          ? `  before_send declarado en: ${rel(ruta)}`
+          : `  before_send lo engancha: ${rel(ruta)}`,
         `  El sobre del evento (api_key, token, timestamp, distinct_id) es`,
         `  protocolo, no datos del visitante. Redactarlo rompe la ingesta:`,
         `    - timestamp aplanado  -> 400, el evento se rechaza`,

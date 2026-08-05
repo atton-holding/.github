@@ -1,0 +1,35 @@
+# Tests de las acciones compartidas de este repo.
+#
+# Existe por CASE-479: `analytics-guard` se escribió sin tests propios y dos
+# defectos suyos sobrevivieron a una verificación manual cuidadosa. Una acción
+# que decide el pass/fail del CI de todo el ecosistema es de lo último que
+# debería correr sin red: el vigilante se verifica con el mismo rigor que le
+# exige al vigilado.
+
+name: Tests de acciones
+
+on:
+  pull_request:
+    paths:
+      - ".github/actions/**"
+      - ".github/workflows/tests-actions.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".github/actions/**"
+
+permissions:
+  contents: read
+
+jobs:
+  analytics-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # El glob, no el directorio: el runner de Node no descubre tests dentro de
+      # rutas ocultas como `.github/` y trata el directorio como si fuera un
+      # módulo. Verificado con el mismo bash que usa Actions.
+      - run: node --test .github/actions/analytics-guard/*.test.mjs

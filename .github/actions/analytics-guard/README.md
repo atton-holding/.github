@@ -36,7 +36,7 @@ En un repo con deuda pendiente, para engancharla sin frenar el CI:
 
 **Conservadora a propósito.** Solo falla ante evidencia clara. Una guarda con falsos positivos termina desactivada, y una guarda desactivada es peor que ninguna porque da la sensación de estar cubierto.
 
-Cuando no puede ver la CSP (la pone un proxy o Cloudflare) emite un *warning*, no un error: dice que no pudo verificar en vez de afirmar que está mal.
+Cuando no puede ver algo emite un *warning*, no un error: dice que no pudo verificar en vez de afirmar que está mal. Pasa con la CSP que pone un proxy o Cloudflare, y con un `before_send` que apunta a un handler que la guarda no logra resolver.
 
 **Verificada contra el caso real.** Corrida sobre los commits anteriores a los arreglos, detecta:
 
@@ -45,6 +45,19 @@ Cuando no puede ver la CSP (la pone un proxy o Cloudflare) emite un *warning*, n
 
 Sobre los cinco sitios ya arreglados pasa limpia. Que no dé falsos positivos y que sí detecte los casos reales son dos propiedades distintas, y las dos están medidas.
 
+## Tests
+
+```bash
+node --test .github/actions/analytics-guard/*.test.mjs
+```
+
+La guarda exige que todo redactor de PII tenga tests, así que ella los tiene: **el vigilante se verifica con el mismo rigor que le exige al vigilado.** Nació de CASE-479, donde dos defectos suyos sobrevivieron a una verificación manual cuidadosa.
+
+Dos cosas que la suite hace a propósito:
+
+- El test del paso **lee el `run:` del `action.yml` real** y lo ejecuta con el invocador de GitHub Actions (`bash --noprofile --norc -eo pipefail`), no con el bash de la laptop. `shell: bash` trae `errexit` puesto, y ahí vivía el defecto que dejaba muerto el modo `warn`: probado en otro shell, el paso mide otro programa.
+- Cada verificación tiene su par: un fixture que **debe** fallar y el mismo fixture corregido que **debe** pasar. Una aserción sin un mutante que la mate no prueba que el test proteja nada.
+
 ## Referencia
 
-CASE-427 · `aduana/velocity-method-cases/`
+CASE-427 (por qué existe) · CASE-479 (por qué tiene tests) · `aduana/velocity-method-cases/`

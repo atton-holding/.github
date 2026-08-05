@@ -35,8 +35,15 @@ runs:
         ATTON_GUARDA_SCRIPT: ${{ github.action_path }}/guarda.mjs
       run: |
         set -uo pipefail
-        node "$ATTON_GUARDA_SCRIPT"
-        codigo=$?
+
+        # `node ... || codigo=$?`, NO `node ...` seguido de `codigo=$?`.
+        # Actions invoca `shell: bash` como `bash --noprofile --norc -eo pipefail {0}`,
+        # o sea con errexit YA activo, y `set -uo pipefail` no lo apaga. Sin el `||`
+        # el shell aborta en esta línea apenas la guarda encuentra algo, y el modo
+        # 'warn' de acá abajo nunca llega a ejecutarse. Una condición está exenta
+        # de errexit; un comando suelto no. Ver CASE-479.
+        codigo=0
+        node "$ATTON_GUARDA_SCRIPT" || codigo=$?
 
         if [ $codigo -eq 0 ]; then
           exit 0
