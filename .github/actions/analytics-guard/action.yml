@@ -1,0 +1,58 @@
+name: "Atton analytics guard"
+description: >-
+  Verifica que la analítica del repo pueda realmente medir: CSP con los hosts de
+  PostHog, before_send que no toca el sobre del evento, y redactor de PII con
+  tests. Cada verificación corresponde a una falla real de CASE-427, donde dos
+  sitios pasaron 30 días en producción sin registrar una sola visita.
+author: "Atton Finance"
+
+inputs:
+  modo:
+    description: >-
+      'block' (por defecto) falla el job ante un hallazgo. 'warn' reporta y deja
+      pasar, para engancharla en un repo que todavía arrastra deuda sin frenarle
+      el CI. Un repo nuevo arranca siempre en 'block'.
+    required: false
+    default: "block"
+  directorio:
+    description: "Directorio a analizar. Útil en monorepos."
+    required: false
+    default: "."
+
+runs:
+  using: composite
+  steps:
+    - name: Guarda de analítica
+      shell: bash
+      working-directory: ${{ inputs.directorio }}
+      # Los inputs entran por `env`, NO interpolados dentro del `run`.
+      # `${{ }}` se sustituye ANTES de que el shell arranque, así que un valor
+      # con comillas o `;` se convierte en comandos ejecutables: es la
+      # inyección clásica de scripts en Actions. Por env, bash los ve como
+      # datos y nunca como código.
+      env:
+        ATTON_GUARDA_MODO: ${{ inputs.modo }}
+        ATTON_GUARDA_SCRIPT: ${{ github.action_path }}/guarda.mjs
+      run: |
+        set -uo pipefail
+
+        # `node ... || codigo=$?`, NO `node ...` seguido de `codigo=$?`.
+        # Actions invoca `shell: bash` como `bash --noprofile --norc -eo pipefail {0}`,
+        # o sea con errexit YA activo, y `set -uo pipefail` no lo apaga. Sin el `||`
+        # el shell aborta en esta línea apenas la guarda encuentra algo, y el modo
+        # 'warn' de acá abajo nunca llega a ejecutarse. Una condición está exenta
+        # de errexit; un comando suelto no. Ver CASE-479.
+        codigo=0
+        node "$ATTON_GUARDA_SCRIPT" || codigo=$?
+
+        if [ $codigo -eq 0 ]; then
+          exit 0
+        fi
+
+        if [ "$ATTON_GUARDA_MODO" = "warn" ]; then
+          echo "::warning::[guarda-analitica] Hallazgos encontrados. El modo es 'warn', así que el job sigue."
+          echo "::warning::[guarda-analitica] Pasar a modo 'block' en cuanto la deuda esté saldada."
+          exit 0
+        fi
+
+        exit $codigo
